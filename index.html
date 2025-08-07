@@ -1,168 +1,66 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>ChatGPT Viewer</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <style>
-    body {
-      margin: 0; padding: 0; font-family: sans-serif;
-      background: #343541; color: white; display: flex; height: 100vh;
-    }
-    #sidebar {
-      width: 260px; background: #202123; overflow-y: auto;
-      border-right: 1px solid #444;
-    }
-    #sidebar h2 {
-      padding: 1em; font-size: 1em; color: #fff; margin: 0; border-bottom: 1px solid #444;
-    }
-    .conversation-item {
-      padding: 1em; cursor: pointer; border-bottom: 1px solid #333;
-      color: #ccc;
-    }
-    .conversation-item:hover {
-      background: #2d2f31;
-    }
-    #main {
-      flex: 1; padding: 1em; overflow-y: auto;
-      display: flex; flex-direction: column;
-    }
-    .message {
-      margin-bottom: 1.5em;
-    }
-    .message.user {
-      background: #3b3f44; padding: 1em; border-radius: 8px;
-    }
-    .message.assistant {
-      background: #444654; padding: 1em; border-radius: 8px;
-    }
-    .timestamp {
-      font-size: 0.8em; color: #aaa; margin-bottom: 0.5em;
-    }
-    .attachment {
-      margin-bottom: 1em; max-width: 100%;
-    }
-    button.export {
-      background: #10a37f; color: white; border: none;
-      padding: 0.5em 1em; margin-top: 1em; cursor: pointer; border-radius: 4px;
-      align-self: flex-end;
-    }
-  </style>
+<title>Real-time HTML Editor</title>
+<script type="text/javascript">
+
+var editboxHTML = 
+'<html class="expand close">' +
+'<head>' +
+'<style type="text/css">' +
+'.expand { width: 100%; height: 100%; }' +
+'.close { border: none; margin: 0px; padding: 0px; }' +
+'html,body { overflow: hidden; }' +
+'<\/style>' +
+'<\/head>' +
+'<body class="expand close" onload="document.f.ta.focus(); document.f.ta.select();">' +
+'<form class="expand close" name="f">' +
+'<textarea class="expand close" style="background: #def;" name="ta" wrap="hard" spellcheck="false">' +
+'<\/textarea>' +
+'<\/form>' +
+'<\/body>' +
+'<\/html>';
+
+var defaultStuff = '<h3>Welcome to the real-time HTML editor!<\/h3>\n' +
+'<p>Type HTML in the textarea above, and it will magically appear in the frame below.<\/p>';
+
+// I don't want this stuff to appear in the box at the top because I feel it's likely to be distracting.
+var extraStuff = '<div style="position:absolute; margin:.3em; bottom:0em; right:0em;"><small>\n  Created by <a href="http://www.squarefree.com/" target="_top">Jesse Ruderman<\/a> and hosted by <a href="http://www.dreamhost.com/rewards.cgi?jesseruderman" target="_top">DreamHost<\/a>.\n<\/small><\/div>';
+
+var old = '';
+         
+function init()
+{
+  window.editbox.document.write(editboxHTML);
+  window.editbox.document.close();
+  window.editbox.document.f.ta.value = defaultStuff;
+  update();
+}
+
+function update()
+{
+  var textarea = window.editbox.document.f.ta;
+  var d = dynamicframe.document; 
+
+  if (old != textarea.value) {
+    old = textarea.value;
+    d.open();
+    d.write(old);
+    if (old.replace(/[\r\n]/g,'') == defaultStuff.replace(/[\r\n]/g,''))
+      d.write(extraStuff);
+    d.close();
+  }
+
+  window.setTimeout(update, 150);
+}
+
+</script>
 </head>
-<body>
 
-  <div id="sidebar">
-    <h2>Conversations</h2>
-    <div id="conversationList"></div>
-  </div>
+<frameset resizable="yes" rows="50%,*" onload="init();">
+  <!-- about:blank confuses opera, so use javascript: URLs instead -->
+  <frame name="editbox" src="javascript:'';">
+  <frame name="dynamicframe" src="javascript:'';">
+</frameset>
 
-  <div id="main">
-    <div id="chatDisplay"></div>
-    <button id="exportBtn" class="export" style="display:none">Export as TXT</button>
-  </div>
-
-  <input type="file" id="folderInput" webkitdirectory multiple />
-
-  <script>
-    let conversations = [];
-    let fileMap = {};
-
-    const folderInput = document.getElementById("folderInput");
-    const conversationList = document.getElementById("conversationList");
-    const chatDisplay = document.getElementById("chatDisplay");
-    const exportBtn = document.getElementById("exportBtn");
-
-    folderInput.addEventListener("change", async (e) => {
-      const files = Array.from(e.target.files);
-
-      fileMap = {};
-      for (let file of files) {
-        fileMap[file.webkitRelativePath.split('/').pop()] = file;
-      }
-
-      const convFile = files.find(f => f.name === 'conversations.json');
-      if (!convFile) {
-        alert('conversations.json not found');
-        return;
-      }
-
-      const text = await convFile.text();
-      conversations = JSON.parse(text);
-
-      renderSidebar();
-    });
-
-    function renderSidebar() {
-      conversationList.innerHTML = '';
-      conversations.forEach((conv, index) => {
-        const item = document.createElement("div");
-        item.className = "conversation-item";
-        item.textContent = conv.title || `Conversation ${index}`;
-        item.onclick = () => renderConversation(index);
-        conversationList.appendChild(item);
-      });
-    }
-
-    function formatTimestamp(ts) {
-      if (!ts) return '';
-      const d = new Date(ts * 1000);
-      return d.toISOString().slice(0, 19).replace('T', ' ');
-    }
-
-    function renderConversation(index) {
-      const conv = conversations[index];
-      const messages = Object.values(conv.mapping).map(m => m.message).filter(Boolean);
-      const sorted = messages.sort((a, b) => a.create_time - b.create_time);
-      let txtOutput = '';
-
-      chatDisplay.innerHTML = '';
-      sorted.forEach(msg => {
-        if (!['user', 'assistant'].includes(msg.author.role)) return;
-        if (!msg.content || !msg.content.parts || !msg.content.parts[0].trim()) return;
-
-        const wrapper = document.createElement("div");
-        wrapper.className = `message ${msg.author.role}`;
-
-        const ts = document.createElement("div");
-        ts.className = 'timestamp';
-        ts.textContent = formatTimestamp(msg.create_time);
-        wrapper.appendChild(ts);
-
-        // Attachments
-        if (msg.author.role === 'user' && msg.metadata?.attachments) {
-          msg.metadata.attachments.forEach(att => {
-            const fileKey = `${msg.id}-${att.name}`;
-            const fileBlob = fileMap[fileKey];
-            if (fileBlob && fileBlob.type.startsWith('image/')) {
-              const img = document.createElement("img");
-              img.className = 'attachment';
-              img.src = URL.createObjectURL(fileBlob);
-              wrapper.appendChild(img);
-            }
-          });
-        }
-
-        const md = marked.parse(msg.content.parts.join('\n'));
-        const div = document.createElement("div");
-        div.innerHTML = md;
-        wrapper.appendChild(div);
-
-        chatDisplay.appendChild(wrapper);
-
-        txtOutput += `[${formatTimestamp(msg.create_time)}] ${msg.author.role.toUpperCase()}:\n${msg.content.parts.join('\n')}\n\n`;
-      });
-
-      exportBtn.style.display = 'block';
-      exportBtn.onclick = () => {
-        const blob = new Blob([txtOutput], { type: 'text/plain' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `${conv.title || 'conversation'}.txt`;
-        link.click();
-      };
-    }
-  </script>
-
-</body>
 </html>
